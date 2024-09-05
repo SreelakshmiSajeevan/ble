@@ -1,0 +1,139 @@
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+
+void main() => runApp(const MyApp());
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+        title: 'BLE Demo',
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+        ),
+        home: const MyHomePage(title: 'Flutter BLE Demo'),
+      );
+}
+
+class MyHomePage extends StatefulWidget {
+  const MyHomePage({Key? key, required this.title}) : super(key: key);
+
+  final String title;
+
+  @override
+  MyHomePageState createState() => MyHomePageState();
+}
+
+class MyHomePageState extends State<MyHomePage> {
+  bool _bluetoothEnabled = false;
+  List<BluetoothDevice> _bondedDevices = [];
+  BluetoothCharacteristic? _controlCharacteristic;
+  bool _isDeviceOn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBluetoothStatus(); // Check Bluetooth status on start
+    _getBondedDevices(); // Fetch bonded devices on start
+  }
+
+  Future<void> _checkBluetoothStatus() async {
+    final connectivityResult = await Connectivity().checkConnectivity();
+
+    if (connectivityResult == ConnectivityResult.bluetooth) {
+      setState(() {
+        _bluetoothEnabled = true;
+      });
+    } else {
+      await _promptEnableBluetooth();
+    }
+  }
+
+  Future<void> _promptEnableBluetooth() async {
+    try {
+      // Open Bluetooth settings
+      await FlutterBluePlus.turnOn();
+
+      // Wait for a moment for the user to enable Bluetooth
+      await Future.delayed(const Duration(seconds: 5));
+
+      // Check if Bluetooth is now enabled
+      final connectivityResult = await Connectivity().checkConnectivity();
+      if (connectivityResult == ConnectivityResult.bluetooth) {
+        setState(() {
+          _bluetoothEnabled = true;
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bluetooth not enabled')),
+        );
+      }
+    } catch (e) {
+      print("Error: $e");
+    }
+  }
+
+  Future<void> _getBondedDevices() async {
+    // Check if Bluetooth is enabled
+    if (!_bluetoothEnabled) return;
+
+    try {
+      // Start scanning for bonded devices
+      List<BluetoothDevice> devices = await FlutterBluePlus.connectedSystemDevices();
+      
+      setState(() {
+        _bondedDevices = devices;
+      });
+    } catch (e) {
+      print("Error fetching bonded devices: $e");
+    }
+  }
+
+  Future<void> _toggleDeviceState() async {
+    if (_controlCharacteristic != null) {
+      setState(() {
+        _isDeviceOn = !_isDeviceOn;
+      });
+
+      String command = _isDeviceOn ? "DEVICE_ON" : "DEVICE_OFF";
+      await _controlCharacteristic!.write(utf8.encode(command));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title: Text(widget.title),
+        ),
+        body: _bluetoothEnabled
+            ? Column(
+                children: [
+                  ElevatedButton(
+                    child: Text(
+                      _isDeviceOn ? 'DEVICE OFF' : 'DEVICE ON',
+                      style: const TextStyle(color: Colors.black),
+                    ),
+                    onPressed: _toggleDeviceState,
+                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: _bondedDevices.length,
+                      itemBuilder: (context, index) {
+                        BluetoothDevice device = _bondedDevices[index];
+                        return ListTile(
+                          title: Text(device.name),
+                          subtitle: Text(device.id.toString()),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              )
+            : const Center(
+                child: CircularProgressIndicator(),
+              ),
+      );
+}
